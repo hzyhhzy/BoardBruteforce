@@ -1,4 +1,4 @@
-﻿//solve every position of Ataxx with brute force 
+//solve every position of Ataxx with brute force 
 #include <iostream>
 #include <cstdint>
 #include <vector>
@@ -16,8 +16,8 @@ using namespace std;
 //~1h if 4x5
 //several days to one month if 5x5
 //RAM requirement for 5x5 board: 27GB
-const int H = 4;
-const int W = 4;
+const int H = 5;
+const int W = 5;
 typedef int8_t Color;
 const Color C_EMPTY = 0;
 const Color C_MY = 1;
@@ -206,7 +206,7 @@ namespace BoardEncode
       for (int sym = 0; sym < 8; sym++)
       {
         Board boardCopy = symBoard(baseboard, sym);
-        int simpleEncode = sym8locSimpleEncodeOfBoard(boardCopy);
+        int64_t simpleEncode = sym8locSimpleEncodeOfBoard(boardCopy);
         if (simpleEncode < smallestSymIdx)
         {
           smallestSymDir = sym;
@@ -317,7 +317,7 @@ namespace BoardEncode
       }
 
       {
-        int shape8t = sym8locSimpleEncodeOfBoard(baseboard);
+        int64_t shape8t = sym8locSimpleEncodeOfBoard(baseboard);
         if (shape8t != shape8)
         {
           cout << "shape8t!=shape8 " << shape8t << " " << shape8 << endl;
@@ -332,7 +332,7 @@ namespace BoardEncode
       for (int sym = 0; sym < 8; sym++)
       {
         Board boardCopy = symBoard(baseboard, sym);
-        int simpleEncode = sym8locSimpleEncodeOfBoard(boardCopy);
+        int64_t simpleEncode = sym8locSimpleEncodeOfBoard(boardCopy);
         if (shapeid != sym8loc_encode[simpleEncode])
         {
           cout << "encode not match " << "shape8=" << shape8 << " sym=" << simpleEncode << " encode=" << shapeid << " symencode=" << sym8loc_encode[simpleEncode] << endl;
@@ -367,7 +367,7 @@ static int symDir(const Board& board)
 {
   using namespace BoardEncode;
   int64_t sym8idx = sym8locSimpleEncodeOfBoard(board);
-  int64_t sym = sym8loc_dir[sym8idx];
+  int sym = sym8loc_dir[sym8idx];
 
   return sym;
 
@@ -425,8 +425,9 @@ namespace CacheTable
     if (!cacheStream.good()) {
       return false;
     }
-    cout << "done" << endl;
     cacheStream.write(reinterpret_cast<char*>(table.data()), sizeof(uint8_t) * table.size());
+    cacheStream.close();
+    cout << "done" << endl;
     return true;
   }
   static bool load(string path)
@@ -439,6 +440,7 @@ namespace CacheTable
     }
     cacheStream.read(reinterpret_cast<char*>(table.data()), sizeof(uint8_t) * table.size());
     if (cacheStream.good()) {
+      cacheStream.close();
       cout << "done" << endl;
       return true;
     }
@@ -742,7 +744,7 @@ static void calculateAll()
 
       if (s == stonenum)
       {
-        int h = encode(board);
+        int64_t h = encode(board);
         int r = CacheTable::get(h);
         if (r == 0)
         {
