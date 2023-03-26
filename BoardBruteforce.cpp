@@ -638,8 +638,8 @@ Board findBestNextBoard(const Board& board)
 
 static void calculateAll()
 {
-  Board board;
-
+  string logFilePath= to_string(H) + "x" + to_string(W) + "_log.txt";
+  ofstream logStream(logFilePath, ios::app);
 
   bool hasCheckpoint = false;
   int checkpoint_stonenum = H * W;
@@ -650,7 +650,7 @@ static void calculateAll()
   if (checkpointLogFile.good())
   {
     checkpointLogFile >> checkpoint_stonenum >> checkpoint_movenum;
-    if (checkpointLogFile.good() && checkpoint_stonenum >= 0 && checkpoint_stonenum <= H * W && checkpoint_movenum > 0 && checkpoint_movenum <= 10000)
+    if (checkpointLogFile.good() && checkpoint_stonenum >= 0 && checkpoint_stonenum <= H * W && checkpoint_movenum >= 0 && checkpoint_movenum <= 10000)
     {
       if (CacheTable::load(checkpointName + ".ataxx"))
       {
@@ -670,9 +670,124 @@ static void calculateAll()
 
   for (int stonenum = checkpoint_stonenum; stonenum >= 0; stonenum--)
   {
+    const int64_t MAX_SAVE_BOARDS = 50000000;
+    bool useRemainBoards = false;
+    bool saveRemainBoards = false;
+    vector<Board> remainBoards;
+    vector<Board> remainBoardsNext;
     for (int movenum = stonenum == checkpoint_stonenum ? checkpoint_movenum + 1 : 1;; movenum++)
     {
       int64_t newResult = 0;
+      int64_t remainBoardNum = 0;
+      if (saveRemainBoards)
+        remainBoardsNext.clear();
+
+      if (!useRemainBoards)//暴力穷举所有棋盘，使用类似三进制进位的方式
+      {
+        Board board;
+        for (int loc = 0; loc < H * W; loc++)
+        {
+          board[loc] = 0;
+        }
+        while (1)
+        {
+          if (symDir(board) == 0)//所有对称局面只考虑一种
+          {
+            int s = 0;
+            for (int loc = 0; loc < H * W; loc++)
+            {
+              if (board[loc] != C_EMPTY)s++;
+            }
+
+            if (s == stonenum)
+            {
+              int r = CacheTable::get(encode(board));
+              if (r == 0)
+              {
+                r = calculateDepth1(board);
+                if (r != 0)
+                  newResult++;
+                else
+                {
+                  remainBoardNum++;
+                  if (saveRemainBoards)
+                    remainBoardsNext.push_back(board);
+                }
+              }
+            }
+          }
+
+          //使用类似三进制进位的方式
+          board[0] += 1;
+          for (int i = 0; i < H * W - 1; i++)
+          {
+            if (board[i] >= 3)
+            {
+              board[i] = 0;
+              board[i + 1] += 1;
+            }
+            else break;
+          }
+          if (board[H * W - 1] >= 3)
+            break;
+        }
+      }
+      else
+      {
+        for (auto b = remainBoards.begin(); b != remainBoards.end(); b++)
+        {
+          Board board = *b;
+          int r = CacheTable::get(encode(board));
+          assert(r == 0);
+          r = calculateDepth1(board);
+          if (r != 0)
+            newResult++;
+          else
+          {
+            remainBoardNum++;
+            if (saveRemainBoards)
+              remainBoardsNext.push_back(board);
+          }
+          
+        }
+      }
+      cout << "stonenum=" << stonenum << ", step=" << movenum << ", newResults=" << newResult << ", remain=" << remainBoardNum << endl;
+      logStream << "stonenum=" << stonenum << ", step=" << movenum << ", newResults=" << newResult << ", remain=" << remainBoardNum << endl;
+
+
+
+      if (saveRemainBoards)
+      {
+        remainBoards.swap(remainBoardsNext);
+        useRemainBoards = true;
+        assert(remainBoards.size() == remainBoardNum);
+      }
+
+      if (remainBoardNum < MAX_SAVE_BOARDS)
+        saveRemainBoards = true; //下步开始记录无结果棋盘，下下步就不用穷举了
+
+      if (remainBoardNum > 10000000)
+      {
+        ofstream checkpointLogFile(checkpointName + ".txt");
+        if (checkpointLogFile.good())
+        {
+          CacheTable::save(checkpointName + ".ataxx");
+          checkpointLogFile << stonenum << " " << movenum << "  ";
+        }
+      }
+
+
+      if (newResult == 0)
+        break;
+    }
+
+
+    //剩下的局面都是循环导致的和棋
+    int64_t drawnum = 0;
+
+    if (!useRemainBoards)
+    {
+      Board board;
       //穷举所有棋盘，使用类似三进制进位的方式
       for (int loc = 0; loc < H * W; loc++)
       {
@@ -680,23 +795,25 @@ static void calculateAll()
       }
       while (1)
       {
-        if (symDir(board) == 0)//所有对称局面只考虑一种
+        int s = 0;
+        for (int loc = 0; loc < H * W; loc++)
         {
-          int s = 0;
-          for (int loc = 0; loc < H * W; loc++)
-          {
-            if (board[loc] != C_EMPTY)s++;
-          }
+          if (board[loc] != C_EMPTY)s++;
+        }
 
-          if (s == stonenum)
+        if (s == stonenum)
+        {
+          int64_t h = encode(board);
+          int r = CacheTable::get(h);
+          if (r == 0)
           {
-            int r = CacheTable::get(encode(board));
-            if (r == 0)
+            if (drawnum == 0)
             {
-              r = calculateDepth1(board);
-              if (r != 0)
-                newResult++;
+              cout << "Loop draw example" << endl;
+              printBoard(board);
             }
+            drawnum++;
+            CacheTable::set(h, R_DRAW);
           }
         }
 
@@ -714,66 +831,35 @@ static void calculateAll()
         if (board[H * W - 1] >= 3)
           break;
       }
-      cout << "stonenum=" << stonenum << ", step=" << movenum << ", newResults=" << newResult << endl;
-      if (newResult == 0)
-        break;
-
-      ofstream checkpointLogFile(checkpointName + ".txt");
-      if (checkpointLogFile.good())
-      {
-        CacheTable::save(checkpointName + ".ataxx");
-        checkpointLogFile << stonenum << " " << movenum << "  ";
-      }
     }
-
-
-    //剩下的局面都是循环导致的和棋
-    int64_t drawnum = 0;
-    //穷举所有棋盘，使用类似三进制进位的方式
-    for (int loc = 0; loc < H * W; loc++)
+    else
     {
-      board[loc] = 0;
-    }
-    while (1)
-    {
-      int s = 0;
-      for (int loc = 0; loc < H * W; loc++)
+      for (auto b = remainBoards.begin(); b != remainBoards.end(); b++)
       {
-        if (board[loc] != C_EMPTY)s++;
-      }
-
-      if (s == stonenum)
-      {
+        Board board = *b;
         int64_t h = encode(board);
         int r = CacheTable::get(h);
-        if (r == 0)
+        assert(r == 0);
+        
+        if (drawnum == 0)
         {
-          if (drawnum == 0)
-          {
-            cout << "Loop draw example" << endl;
-            printBoard(board);
-          }
-          drawnum++;
-          CacheTable::set(h, R_DRAW);
+          cout << "Loop draw example" << endl;
+          printBoard(board);
         }
+        drawnum++;
+        CacheTable::set(h, R_DRAW);
+        
       }
-
-      //使用类似三进制进位的方式
-      board[0] += 1;
-      for (int i = 0; i < H * W - 1; i++)
-      {
-        if (board[i] >= 3)
-        {
-          board[i] = 0;
-          board[i + 1] += 1;
-        }
-        else break;
-      }
-      if (board[H * W - 1] >= 3)
-        break;
     }
     cout << "stonenum=" << stonenum << ", loopDraws=" << drawnum << endl;
+    logStream << "stonenum=" << stonenum << ", loopDraws=" << drawnum << endl;
 
+    ofstream checkpointLogFile(checkpointName + ".txt");
+    if (checkpointLogFile.good())
+    {
+      CacheTable::save(checkpointName + ".ataxx");
+      checkpointLogFile << stonenum - 1 << " 0  ";
+    }
   }
 
 
