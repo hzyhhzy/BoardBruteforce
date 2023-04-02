@@ -24,26 +24,26 @@ const Color C_MY = 1;
 const Color C_OPP = 2;
 typedef array<Color, H* W> Board;
 
-void printBoard(const Board& board)
+void printBoard(const Board& board, ostream& out=cout)
 {
   static_assert(H <= 9 && W <= 26, "");
-  cout << "  ";
+  out << "  ";
   for (int x = 0; x < W; x++)
-    cout << char('A' + x) << " ";
-  cout << endl;
+    out << char('A' + x) << " ";
+  out << endl;
   for (int y = 0; y < H; y++)
   {
-    cout << y + 1 << " ";
+    out << y + 1 << " ";
     for (int x = 0; x < W; x++)
     {
       Color c = board[y * W + x];
-      if (c == C_EMPTY)cout << ". ";
-      if (c == C_MY)cout << "x ";
-      if (c == C_OPP)cout << "o ";
+      if (c == C_EMPTY)out << ". ";
+      if (c == C_MY)out << "x ";
+      if (c == C_OPP)out << "o ";
     }
-    cout << endl;
+    out << endl;
   }
-  cout << endl;
+  out << endl;
 
 }
 
@@ -59,18 +59,38 @@ namespace BoardEncode
   // .......
   // 4.....5
   // -6...7-
-  static_assert(H >= 4 && W >= 4, "");
-  const int sym8locs[8] = {
-    0 * W + 1,
-    0 * W + (W - 2),
-    1 * W + 0,
-    1 * W + (W - 1),
-    (H - 2) * W + 0,
-    (H - 2) * W + (W - 1),
-    (H - 1) * W + 1,
-    (H - 1) * W + (W - 2)
-  };
+  static_assert(H >= 2 && W >= 4 && W >= H, "");
 
+  constexpr array<int,8> getSym8Locs()
+  {
+    if constexpr (H >= 4 && W >= 4)
+    {
+      return {
+        0 * W + 1,
+        0 * W + (W - 2),
+        1 * W + 0,
+        1 * W + (W - 1),
+        (H - 2) * W + 0,
+        (H - 2) * W + (W - 1),
+        (H - 1) * W + 1,
+        (H - 1) * W + (W - 2)
+      };
+    }
+    else
+    {
+      return {
+        0 * W + 1,
+        0 * W + (W - 2),
+        0 * W + 0,
+        0 * W + (W - 1),
+        (H - 1) * W + 0,
+        (H - 1) * W + (W - 1),
+        (H - 1) * W + 1,
+        (H - 1) * W + (W - 2)
+      };
+    }
+  }
+  constexpr array<int, 8> sym8locs = getSym8Locs();
 
   static_assert(H* W <= 39, "");
   const int64_t pow3[40] = {
@@ -397,7 +417,7 @@ namespace CacheTable
     setCount++;
     if (setCount % sizePercent == 0)
     {
-      cout << setCount / sizePercent << "% finished" << endl;
+      //cout << setCount / sizePercent << "% finished" << endl;
       //string cachePath = to_string(H) + "x" + to_string(W) + "_backup.ataxx";
       //save(cachePath);
     }
@@ -670,7 +690,7 @@ static void calculateAll()
 
   for (int stonenum = checkpoint_stonenum; stonenum >= 0; stonenum--)
   {
-    const int64_t MAX_SAVE_BOARDS = 50000000;
+    const int64_t MAX_SAVE_BOARDS = 100000000;
     bool useRemainBoards = false;
     bool saveRemainBoards = false;
     vector<Board> remainBoards;
@@ -809,7 +829,7 @@ static void calculateAll()
           {
             if (drawnum == 0)
             {
-              cout << "Loop draw example" << endl;
+              cout << "Weak loop draw example" << endl;
               printBoard(board);
             }
             drawnum++;
@@ -843,7 +863,7 @@ static void calculateAll()
         
         if (drawnum == 0)
         {
-          cout << "Loop draw example" << endl;
+          cout << "Weak loop draw example" << endl;
           printBoard(board);
         }
         drawnum++;
@@ -851,8 +871,8 @@ static void calculateAll()
         
       }
     }
-    cout << "stonenum=" << stonenum << ", loopDraws=" << drawnum << endl;
-    logStream << "stonenum=" << stonenum << ", loopDraws=" << drawnum << endl;
+    cout << "stonenum=" << stonenum << ", weakLoopDraws=" << drawnum << endl;
+    logStream << "stonenum=" << stonenum << ", weakLoopDraws=" << drawnum << endl;
 
     ofstream checkpointLogFile(checkpointName + ".txt");
     if (checkpointLogFile.good())
@@ -866,8 +886,257 @@ static void calculateAll()
 }
 
 
-int main()
+namespace LoopDraw
 {
+  static void init()//把所有没填满棋盘的和棋局面的结果都设为未知
+  {
+    Board board;
+    for (int loc = 0; loc < H * W; loc++)
+    {
+      board[loc] = 0;
+    }
+    while (1)
+    {
+      if (symDir(board) == 0)//所有对称局面只考虑一种
+      {
+        int s = 0;
+        for (int loc = 0; loc < H * W; loc++)
+        {
+          if (board[loc] != C_EMPTY)s++;
+        }
+
+        if (s != H*W)
+        {
+          int64_t c = encode(board);
+          int r = CacheTable::get(c);
+          if (r == R_DRAW)
+          {
+            CacheTable::set(c, 0);
+          }
+        }
+      }
+
+      //使用类似三进制进位的方式
+      board[0] += 1;
+      for (int i = 0; i < H * W - 1; i++)
+      {
+        if (board[i] >= 3)
+        {
+          board[i] = 0;
+          board[i + 1] += 1;
+        }
+        else break;
+      }
+      if (board[H * W - 1] >= 3)
+        break;
+    }
+
+  }
+
+  int calculateLoopDrawDepth1(const Board& board)
+  {
+    bool isUncertain = true;
+    auto allNextBoard = allNextBoardInverse(board);
+    if (allNextBoard.size() == 0)//finish
+    {
+      int score = 0;
+      for (int i = 0; i < H * W; i++)
+      {
+        if (board[i] == C_MY)score += 1;
+        else score -= 1;
+      }
+      if (score == 0)isUncertain = false;
+      else cout << "ERROR non-draw finished game in calculateLoopDrawDepth1" << endl;
+    }
+    else
+    {
+      for (auto i = allNextBoard.begin(); i != allNextBoard.end(); i++)
+      {
+        int r = CacheTable::get(encode(*i));
+        if (r == R_LOSE)//win
+        {
+          cout << "ERROR non-draw finished game in calculateLoopDrawDepth1" << endl;
+          isUncertain = false;
+          break;
+        }
+        else if (r == R_DRAW)//draw
+        {
+          isUncertain = false;
+          break;
+        }
+        //else if (r == 0)
+        //  isUncertain = true;
+      }
+    }
+
+    if (isUncertain)
+      return 0;
+
+    int64_t hash = encode(board);
+    CacheTable::set(hash, R_DRAW);
+    return R_DRAW;
+  }
+  static void findLoopDraw()
+  {
+
+    string cachePath = to_string(H) + "x" + to_string(W) + ".ataxx";
+    bool hasCache = CacheTable::load(cachePath);
+    if (!hasCache)
+    {
+      calculateAll();
+      CacheTable::save(cachePath);
+    }
+    init();
+
+    string logFilePath = to_string(H) + "x" + to_string(W) + "_loopdraw_log.txt";
+    ofstream logStream(logFilePath, ios::app);
+
+    string loopDrawBoardsPath = to_string(H) + "x" + to_string(W) + "_loopdraw.txt";
+    ofstream loopDrawBoardsStream(loopDrawBoardsPath);
+
+
+
+
+
+    for (int stonenum = H*W-1; stonenum >= 0; stonenum--)
+    {
+      vector<Board> remainBoards;
+      int64_t positionCount = 0, drawCount = 0;
+      int64_t newResult = 0;
+
+      //first step
+      //暴力穷举所有棋盘，使用类似三进制进位的方式
+      {
+        Board board;
+        for (int loc = 0; loc < H * W; loc++)
+        {
+          board[loc] = 0;
+        }
+        while (1)
+        {
+          if (symDir(board) == 0)//所有对称局面只考虑一种
+          {
+            int s = 0;
+            for (int loc = 0; loc < H * W; loc++)
+            {
+              if (board[loc] != C_EMPTY)s++;
+            }
+
+            if (s == stonenum)
+            {
+              positionCount++;
+              int r = CacheTable::get(encode(board));
+              if (r == 0)
+              {
+                drawCount++;
+                r = calculateLoopDrawDepth1(board);
+                if (r != 0)
+                  newResult++;
+                else
+                {
+                  remainBoards.push_back(board);
+                }
+              }
+            }
+          }
+
+          //使用类似三进制进位的方式
+          board[0] += 1;
+          for (int i = 0; i < H * W - 1; i++)
+          {
+            if (board[i] >= 3)
+            {
+              board[i] = 0;
+              board[i + 1] += 1;
+            }
+            else break;
+          }
+          if (board[H * W - 1] >= 3)
+            break;
+        }
+      }
+
+      cout << "LoopDraw: StoneNum=" << stonenum << ", PositionNum=" << positionCount << ", DrawNum=" << drawCount << endl;
+      cout << "LoopDraw: stonenum=" << stonenum << ", step=0, newResults=" << newResult << ", remain=" << remainBoards.size() << endl;
+      logStream << "StoneNum=" << stonenum << ", PositionNum=" << positionCount << ", DrawNum=" << drawCount << endl;
+      logStream << "stonenum=" << stonenum << ", step=0, newResults=" << newResult << ", remain=" << remainBoards.size() << endl;
+
+
+      vector<Board> remainBoardsNext;
+
+      for (int movenum = 1;; movenum++)
+      {
+        int64_t newResult = 0;
+        int64_t remainBoardNum = 0;
+        remainBoardsNext.clear();
+
+        for (auto b = remainBoards.begin(); b != remainBoards.end(); b++)
+        {
+          Board board = *b;
+          int r = CacheTable::get(encode(board));
+          assert(r == 0);
+          r = calculateLoopDrawDepth1(board);
+          if (r != 0)
+            newResult++;
+          else
+          {
+            remainBoardNum++;
+            remainBoardsNext.push_back(board);
+          }
+
+         }
+        
+        cout << "LoopDraw: stonenum=" << stonenum << ", step=" << movenum << ", newResults=" << newResult << ", remain=" << remainBoardNum << endl;
+        logStream << "stonenum=" << stonenum << ", step=" << movenum << ", newResults=" << newResult << ", remain=" << remainBoardNum << endl;
+
+
+
+        remainBoards.swap(remainBoardsNext);
+        assert(remainBoards.size() == remainBoardNum);
+
+
+
+        if (newResult == 0)
+          break;
+      }
+
+
+      //剩下的局面都是循环导致的和棋
+      int64_t loopdrawnum = 0;
+
+      for (auto b = remainBoards.begin(); b != remainBoards.end(); b++)
+      {
+        Board board = *b;
+        int64_t h = encode(board);
+        int r = CacheTable::get(h);
+        assert(r == 0);
+
+        if (loopdrawnum == 0)
+        {
+          cout << "Loop draw example" << endl;
+          printBoard(board);
+        }
+        loopdrawnum++;
+        CacheTable::set(h, R_DRAW);//从少子的局面变成多子的情况也视为不可逆，所以是R_DRAW而不是0
+
+        loopDrawBoardsStream << "StoneNum " << stonenum << " , " << loopdrawnum << " of " << remainBoards.size() << endl;
+        printBoard(board, loopDrawBoardsStream);
+
+      }
+      
+      cout << "stonenum=" << stonenum << ", loopDraws=" << loopdrawnum << endl;
+      logStream << "stonenum=" << stonenum << ", loopDraws=" << loopdrawnum << endl;
+
+    }
+
+
+
+  }
+};
+
+int main(int argc,char* argv[])
+{
+  //for (int i = 0; i < 8; i++)cout << BoardEncode::sym8locs[i] << endl;
   initAll();
   string cachePath = to_string(H) + "x" + to_string(W) + ".ataxx";
   bool hasCache = CacheTable::load(cachePath);
@@ -877,6 +1146,20 @@ int main()
     CacheTable::save(cachePath);
   }
 
+  //if (argc >= 2 && string(argv[1]) == "loopdraw")
+  {
+    bool calculatedLoopDraw = false;
+    {
+      string loopDrawBoardsPath = to_string(H) + "x" + to_string(W) + "_loopdraw.txt";
+      std::ifstream file(loopDrawBoardsPath);
+      if (file.good())
+        calculatedLoopDraw = true;
+      file.close();
+    }
+    if(!calculatedLoopDraw)
+      LoopDraw::findLoopDraw();
+  }
+
 
 
   Board board;
@@ -884,13 +1167,13 @@ int main()
   {
     board[loc] = 0;
   }
-  board[0] = C_MY;
-  board[H * W - 1] = C_MY;
-  board[W - 1] = C_OPP;
-  board[H * W - W] = C_OPP;
+  board[0] = C_OPP;
+  board[H * W - 1] = C_OPP;
+  board[W - 1] = C_MY;
+  board[H * W - W] = C_MY;
 
 
-
+  cout << "You play o, bot plays x, 'setboard' command to set initial board" << endl;
   while (true)
   {
     //cout << "Your moves:" << endl;
@@ -909,13 +1192,47 @@ int main()
 
     string playerMove;
     cin >> playerMove;
-    if (playerMove.size() == 2)
+    if (playerMove == "setboard")//always x's turn
+    {
+      string boardstr;
+      cin >> boardstr;
+      bool suc = true;
+      Board newBoard;
+      if (boardstr.size() != H * W + H - 1)
+        suc = false;
+      else {
+        for (int y = 0; y < H; y++)
+          for (int x = 0; x < W; x++)
+          {
+            char c = boardstr[y * W + y + x];
+            if (c == 'x')
+              newBoard[y * W + x] = C_MY;
+            else if (c == 'o')
+              newBoard[y * W + x] = C_OPP;
+            else if (c == '.')
+              newBoard[y * W + x] = C_EMPTY;
+            else
+              suc = false;
+          }
+      }
+
+      if(!suc)
+      {
+        cout << "ERROR board, input should be like: setboard x..o/..../..../o..x" << endl;
+        continue;
+      }
+      else
+      {
+        board = newBoard;
+      }
+    }
+    else if (playerMove.size() == 2)
     {
       int x = playerMove[0] - 'a';
       int y = playerMove[1] - '1';
       if (x < 0 || x >= W || y < 0 || y >= H)
         continue;
-      board = playMove(board, -1, y * W + x, C_MY);
+      board = playMove(board, -1, y * W + x, C_OPP);
     }
     else if (playerMove.size() == 4)
     {
@@ -927,13 +1244,12 @@ int main()
         continue;
       if (x2 < 0 || x2 >= W || y2 < 0 || y2 >= H)
         continue;
-      board = playMove(board, y1 * W + x1, y2 * W + x2, C_MY);
+      board = playMove(board, y1 * W + x1, y2 * W + x2, C_OPP);
     }
     else continue;
 
     printBoard(board);
 
-    board = inverseBoard(board);
     int res = calculateDepth1(board);
     string resultStr =
       res == 0 ? "Unknown" : 
@@ -943,7 +1259,6 @@ int main()
       "ERROR";
     cout << "Bot Result=" + resultStr << endl;
     board = findBestNextBoard(board);
-    board = inverseBoard(board);
   }
   return 0;
 }
