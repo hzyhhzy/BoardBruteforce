@@ -1,4 +1,5 @@
 //solve every position of Ataxx with brute force 
+//calculated results: https://huggingface.co/datasets/hzydashi/KatagoExceptGo/tree/main/ataxx/bruteforce
 #include <iostream>
 #include <cstdint>
 #include <vector>
@@ -1173,7 +1174,7 @@ int main(int argc,char* argv[])
   board[H * W - W] = C_MY;
 
 
-  cout << "You play o, bot plays x, 'setboard' command to set initial board" << endl;
+  cout << "You play o, bot plays x, 'setboard' command to set initial board, 'swap' command to reverse the board and let the bot play, " << endl;
   while (true)
   {
     //cout << "Your moves:" << endl;
@@ -1225,6 +1226,10 @@ int main(int argc,char* argv[])
       {
         board = newBoard;
       }
+    }
+    else if (playerMove == "swap")
+    {
+      board = inverseBoard(board);
     }
     else if (playerMove.size() == 2)
     {
